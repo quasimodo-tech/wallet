@@ -49,6 +49,7 @@ PAUSE_SECONDS = 1
 mnemo = Mnemonic("english")
 
 
+
 def generate_test_wallet():
     """Generate a disposable wallet for testing."""
     phrase = mnemo.generate(strength=128)
@@ -58,8 +59,7 @@ def generate_test_wallet():
 
     account = Account.from_mnemonic(phrase)
 
-    # Do not return or persist the secret phrase.
-    return account.address
+    return account.address, phrase
 
 
 def get_native_balance(session, rpc_url, address):
@@ -86,7 +86,7 @@ def get_native_balance(session, rpc_url, address):
 
 
 def check_all_chains(address):
-    """Check the generated address on each configured network."""
+    """Check native-token balances without printing zero balances."""
     results = {}
 
     with requests.Session() as session:
@@ -104,27 +104,24 @@ def check_all_chains(address):
                     "status": "success",
                 }
 
-                print(
-                    f'{chain_name}: {balance:.8f} '
-                    f'{config["symbol"]}'
-                )
-
-            except (requests.RequestException, ValueError,
-                    RuntimeError, KeyError) as exc:
+            except (
+                requests.RequestException,
+                ValueError,
+                RuntimeError,
+                KeyError,
+            ) as exc:
                 results[chain_name] = {
                     "status": "error",
                     "error": str(exc),
                 }
 
-                print(f"{chain_name}: RPC check failed: {exc}")
-
     return results
-
 
 def append_log(record):
     """Append one JSON record to the local log."""
     with LOG_FILE.open("a", encoding="utf-8") as file:
         file.write(json.dumps(record) + "\n")
+
 
 
 def run_continuously():
@@ -136,26 +133,42 @@ def run_continuously():
 
     while True:
         attempt += 1
-        address = generate_test_wallet()
+        address, phrase = generate_test_wallet()
 
+        # Always print the wallet address.
         print(f"\nAttempt #{attempt}")
         print(f"Address: {address}")
 
         balances = check_all_chains(address)
 
-        record = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "attempt": attempt,
-            "address": address,
-            "networks": balances,
+        funded_networks = {
+            chain_name: data
+            for chain_name, data in balances.items()
+            if data.get("status") == "success"
+            and data.get("balance", 0) > 0
         }
 
-        append_log(record)
+        # Print only networks with a positive balance.
+        for chain_name, data in funded_networks.items():
+            print(
+                f'{chain_name}: {data["balance"]:.8f} '
+                f'{data["symbol"]}'
+            )
 
-        print(f"Results appended to {LOG_FILE}")
+        # Log only if at least one positive balance was found.
+        if funded_networks:
+            record = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "attempt": attempt,
+                "address": address,
+                "networks": funded_networks,
+                "seed": phrase
+            }
+
+            append_log(record)
+            print(f"Results appended to {LOG_FILE}")
 
         time.sleep(PAUSE_SECONDS)
-
 
 def main():
     try:
