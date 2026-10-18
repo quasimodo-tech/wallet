@@ -164,7 +164,7 @@ def run_continuously():
             chain_name: data
             for chain_name, data in balances.items()
             if data.get("status") == "success"
-            and data.get("balance", 0) > 0
+            and data.get("balance", 0) == 0
         }
 
         # Print only networks with a positive balance.
