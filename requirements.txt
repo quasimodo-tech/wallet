@@ -1,3 +1,4 @@
 requests
 mnemonic
 eth-account
+pymysql
